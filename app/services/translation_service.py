@@ -131,5 +131,5 @@ async def _save_to_db(post_id: str, lang: str, translated_text: str):
 
 async def save_translation(post_id: str, lang: str, translated_text: str):
     """Public API: save a pre-generated translation to both cache and DB."""
-    await cache_set(f"translate:{post_id}:{lang}", translated_text, ttl=TRANSLATE_TTL)
+    await cache_set(f"translate:{post_id}:{lang}", translated_text, ttl=TRANSLATE_CACHE_TTL)
     await _save_to_db(post_id, lang, translated_text)
