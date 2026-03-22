@@ -62,6 +62,27 @@ async def check_milestones(post_id: str, author_id: int | None):
                     logger.info("Milestone %d for post %s (author=%d, +%d)", threshold, post_id, author_id, points)
 
 
+async def check_milestones_batch():
+    """Batch check milestones for all recent posts."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        # Get posts with recent reactions (last 24 hours)
+        posts = await conn.fetch(
+            """
+            SELECT id, author_id FROM posts
+            WHERE updated_at > NOW() - INTERVAL '24 hours'
+            ORDER BY updated_at DESC
+            LIMIT 1000
+            """
+        )
+
+    for post in posts:
+        await check_milestones(post["id"], post["author_id"])
+
+    if posts:
+        logger.info("Checked milestones for %d posts", len(posts))
+
+
 async def _send_milestone_push(
     author_id: int, threshold: int, points: int, total_reactions: int, new_points_total: int,
 ):
