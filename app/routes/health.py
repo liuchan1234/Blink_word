@@ -40,11 +40,8 @@ async def health():
     if errors:
         status["status"] = "degraded"
         status["errors"] = errors
-        return Response(
-            content=__import__("json").dumps(status),
-            status_code=503,
-            media_type="application/json",
-        )
+        # Return 200 even if degraded, as long as app is running
+        return status
 
     return status
 
