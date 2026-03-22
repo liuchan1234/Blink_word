@@ -17,7 +17,7 @@ from app.database import get_pool
 from app.ai_client import get_ai_client
 from app.i18n import t
 from app.services.translation_service import pre_translate_hot_post
-from app.services.milestone_service import check_milestones_batch
+from app.services.milestone_service import check_milestones
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def start_background_tasks():
     """Start all periodic background tasks. Called during app startup."""
     _tasks.append(asyncio.create_task(_run_periodic(_generate_daily_topic, interval=3600, name="daily_topic")))
     _tasks.append(asyncio.create_task(_run_periodic(pre_translate_hot_post, interval=1800, name="pre_translate")))
-    _tasks.append(asyncio.create_task(_run_periodic(check_milestones_batch, interval=900, name="milestone_batch")))
+    _tasks.append(asyncio.create_task(_run_periodic(check_milestones, interval=900, name="milestone_batch")))
     _tasks.append(asyncio.create_task(_run_periodic(_send_group_summaries, interval=3600, name="group_summary")))
     logger.info("Started %d background tasks", len(_tasks))
 
