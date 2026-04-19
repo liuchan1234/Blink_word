@@ -98,9 +98,10 @@ async def lifespan(app: FastAPI):
                 {"command": "help", "description": "帮助 / Help"},
             ], scope={"type": "all_private_chats"})
 
-            # Groups: only /world — keep it clean
+            # Groups: /world + /bye
             await set_my_commands([
                 {"command": "world", "description": "群内刷故事 / Browse in group"},
+                {"command": "bye", "description": "收起按键 / Hide buttons"},
             ], scope={"type": "all_group_chats"})
         else:
             logger.warning("BOT_TOKEN or WEBHOOK_HOST not set — webhook not registered")

@@ -137,8 +137,8 @@ async def handle_group_message(message: dict):
         await send_group_card(chat_id, lang)
         return
 
-    # /stop command — hide the reply keyboard
-    if text == "/stop" or text.startswith("/stop@"):
+    # /bye command — hide the reply keyboard
+    if text == "/bye" or text.startswith("/bye@"):
         await send_message(chat_id, t("group_stopped", lang), reply_markup=remove_keyboard())
         return
 
