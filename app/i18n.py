@@ -176,6 +176,11 @@ _T: dict[str, dict[str, str]] = {
     "no_favorites_yet": {"zh": "你还没有收藏过内容", "en": "Nothing saved yet", "ru": "Пока ничего не сохранено", "id": "Belum ada yang disimpan", "pt": "Nada salvo ainda"},
     "btn_my_stories": {"zh": "📊 我的故事", "en": "📊 My Stories", "ru": "📊 Мои истории", "id": "📊 Ceritaku", "pt": "📊 Histórias"},
     "btn_my_favorites": {"zh": "⭐ 我的收藏", "en": "⭐ Saved", "ru": "⭐ Сохранённое", "id": "⭐ Tersimpan", "pt": "⭐ Salvos"},
+    "btn_my_team": {"zh": "👥 我的邀请团队", "en": "👥 My Invite Team", "ru": "👥 Мои приглашённые", "id": "👥 Tim Undanganku", "pt": "👥 Meu Time"},
+    "team_header": {"zh": "👥 <b>我的邀请团队</b>（共 {count} 人）\n\n🔄 刷帖数 · 🏆 积分 · 🕐 最近活跃", "en": "👥 <b>My Invite Team</b> ({count} members)\n\n🔄 Swipes · 🏆 Points · 🕐 Last active", "ru": "👥 <b>Мои приглашённые</b> ({count} чел.)\n\n🔄 Свайпов · 🏆 Баллов · 🕐 Посл. активность", "id": "👥 <b>Tim Undanganku</b> ({count} orang)\n\n🔄 Geseran · 🏆 Poin · 🕐 Terakhir aktif", "pt": "👥 <b>Meu Time</b> ({count} pessoas)\n\n🔄 Swipes · 🏆 Pontos · 🕐 Último acesso"},
+    "team_empty": {"zh": "还没有邀请任何人。分享你的邀请链接，每成功邀请一人可获得积分！", "en": "No invites yet. Share your link — earn points for every person you bring in!", "ru": "Ещё никого нет. Поделись ссылкой — получай баллы за каждого приглашённого!", "id": "Belum ada yang diundang. Bagikan linkmu — dapatkan poin tiap undangan!", "pt": "Nenhum convite ainda. Compartilhe seu link — ganhe pontos por cada pessoa!"},
+    "team_never_active": {"zh": "未活跃", "en": "inactive", "ru": "неактивен", "id": "belum aktif", "pt": "inativo"},
+    "team_footer": {"zh": "👑 = 已开通会员", "en": "👑 = Premium member", "ru": "👑 = Премиум", "id": "👑 = Member premium", "pt": "👑 = Membro premium"},
     "group_invite_onboarding": {"zh": "👥 <b>和朋友一起刷故事更有趣！</b>\n\n把 Blink.World Bot 拉进你的群，群里发 /world 就能一起刷匿名故事。\n\n👇 点击下方按钮，选择一个群添加", "en": "👥 <b>Stories hit different with friends!</b>\n\nAdd Blink.World Bot to your group chat. Send /world in the group to swipe through anonymous stories together.\n\n👇 Tap the button below to pick a group", "ru": "👥 <b>С друзьями истории заходят иначе!</b>\n\nДобавь Blink.World Bot в свою группу. Отправь /world в группе, чтобы листать анонимные истории вместе.\n\n👇 Нажми кнопку ниже", "id": "👥 <b>Baca cerita bareng temen lebih seru!</b>\n\nTambahkan Blink.World Bot ke grup kamu. Kirim /world di grup buat geser-geser cerita anonim bareng.\n\n👇 Ketuk tombol di bawah buat pilih grup", "pt": "👥 <b>Histórias são melhores em grupo!</b>\n\nAdicione o Blink.World Bot ao seu grupo. Envie /world no grupo pra ver histórias anônimas juntos.\n\n👇 Toque no botão abaixo pra escolher um grupo"},
     "group_invite_after_cards": {"zh": "想和朋友一起刷吗？👇", "en": "Wanna swipe with friends? 👇", "ru": "Хочешь листать с друзьями? 👇", "id": "Mau geser-geser bareng temen? 👇", "pt": "Quer ver com amigos? 👇"},
     "btn_add_to_group": {"zh": "👥 添加到群聊", "en": "👥 Add to Group", "ru": "👥 Добавить в группу", "id": "👥 Tambahkan ke Grup", "pt": "👥 Adicionar ao Grupo"},
@@ -214,3 +219,31 @@ def guess_country(language_code: str | None) -> str:
     code = language_code.lower()[:2]
     mapping = {"zh": "中国", "ru": "俄罗斯", "id": "印尼", "in": "印尼", "pt": "巴西", "en": "United States", "ja": "日本", "ko": "韩国", "es": "西班牙", "fr": "法国", "de": "德国", "ar": "沙特阿拉伯", "hi": "印度"}
     return mapping.get(code, "")
+
+
+# Maps country name (stored as Chinese) → bot language code.
+# Only covers languages the bot actually supports; everything else falls back to "en".
+_COUNTRY_LANG: dict[str, str] = {
+    # Chinese
+    "中国": "zh",
+    "台湾": "zh",
+    "香港": "zh",
+    "澳门": "zh",
+    # Russian
+    "俄罗斯": "ru",
+    # Indonesian / Malay (id covers both well enough)
+    "印尼": "id",
+    "印度尼西亚": "id",
+    "马来西亚": "id",
+    # Portuguese
+    "巴西": "pt",
+    "葡萄牙": "pt",
+}
+
+
+def country_to_lang(country_zh: str) -> str | None:
+    """
+    Return the preferred bot language for a given country (stored as Chinese name).
+    Returns None if no specific mapping exists (caller should keep existing lang).
+    """
+    return _COUNTRY_LANG.get(country_zh)

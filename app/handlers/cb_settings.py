@@ -12,7 +12,7 @@ from app.telegram_helpers import (
 )
 from app.services.user_service import update_user, get_user
 from app.services.country_service import detect_country as detect_country_input
-from app.i18n import t, SUPPORTED_LANGUAGES
+from app.i18n import t, SUPPORTED_LANGUAGES, country_to_lang
 from app.models import CHANNELS, ALL_CHANNEL_IDS, get_channel_display
 from app.handlers.shared import (
     main_menu_keyboard,
@@ -37,17 +37,26 @@ async def handle_set_country(cb_id: str, chat_id: int, user_id: int, data: str, 
     from app.services.user_service import get_onboard_state
     was_onboarding = (await get_onboard_state(user_id)) in ("new", "choosing_country")
 
-    await update_user(user_id, country=info.name_zh, onboard_state="ready")
+    # During onboarding, auto-set language based on selected country
+    if was_onboarding:
+        inferred_lang = country_to_lang(info.name_zh)
+        if inferred_lang and inferred_lang != lang:
+            lang = inferred_lang
+            await update_user(user_id, country=info.name_zh, lang=lang, onboard_state="ready")
+        else:
+            await update_user(user_id, country=info.name_zh, onboard_state="ready")
+    else:
+        await update_user(user_id, country=info.name_zh, onboard_state="ready")
 
     display = f"{info.flag} {info.name_zh if lang == 'zh' else info.name_en}"
     await answer_callback_query(cb_id, text=t("country_set", lang, country=display))
 
     if was_onboarding:
-        # First-time user: show product intro + first card
+        # First-time user: show product intro + first card (in the now-correct language)
         from app.handlers.onboarding import send_onboard_intro_and_first_card
         await send_onboard_intro_and_first_card(chat_id, user_id, lang)
     else:
-        # Existing user changing country from settings
+        # Existing user changing country from settings — language unchanged
         await send_message(chat_id, t("setup_complete", lang), reply_markup=main_menu_keyboard(lang))
 
 

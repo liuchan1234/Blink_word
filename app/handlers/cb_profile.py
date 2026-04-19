@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 async def handle_profile(cb_id: str, chat_id: int, user_id: int, data: str, lang: str):
-    """Handle profile:stories and profile:favorites."""
+    """Handle profile:stories, profile:favorites, profile:team."""
     action = data.split(":", 1)[1] if ":" in data else ""
     await answer_callback_query(cb_id)
 
@@ -24,6 +24,8 @@ async def handle_profile(cb_id: str, chat_id: int, user_id: int, data: str, lang
         await _show_creator_panel(chat_id, user_id, lang)
     elif action == "favorites":
         await _show_favorites(chat_id, user_id, lang)
+    elif action == "team":
+        await _show_invitees_activity(chat_id, user_id, lang)
 
 
 async def _show_creator_panel(chat_id: int, user_id: int, lang: str):
@@ -111,4 +113,40 @@ async def _show_favorites(chat_id: int, user_id: int, lang: str):
             lines[-1] += f" · {fmt_country(country, lang)}"
         lines.append(f"   {content_preview}")
 
+    await send_message(chat_id, "\n".join(lines))
+
+
+async def _show_invitees_activity(chat_id: int, user_id: int, lang: str):
+    """Show activity stats for users invited by this user."""
+    from app.services.user_service import get_invitees_activity
+    from datetime import timezone
+
+    rows = await get_invitees_activity(user_id)
+
+    if not rows:
+        await send_message(chat_id, t("team_empty", lang))
+        return
+
+    lines = [t("team_header", lang, count=len(rows))]
+
+    for i, r in enumerate(rows, 1):
+        premium_badge = "👑 " if r["is_premium"] else ""
+        swipes = r["swipe_count"]
+        points = r["points"]
+
+        # Format last active
+        last_active = r["last_active"]
+        if last_active:
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            last_str = last_active.strftime("%m-%d")
+        else:
+            last_str = t("team_never_active", lang)
+
+        lines.append(
+            f"\n{premium_badge}<b>#{i}</b>  "
+            f"🔄 {swipes} · 🏆 {points} · 🕐 {last_str}"
+        )
+
+    lines.append(f"\n{t('team_footer', lang)}")
     await send_message(chat_id, "\n".join(lines))

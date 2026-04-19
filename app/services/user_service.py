@@ -186,7 +186,43 @@ def _row_to_user(row) -> UserProfile:
         channel_prefs=channel_prefs,
         points=row["points"],
         show_country=row["show_country"],
+        is_premium=row.get("is_premium", False) or False,
         created_at=row["created_at"],
         last_checkin=row["last_checkin"],
         stats=stats,
     )
+
+
+async def get_invitees_activity(inviter_id: int) -> list[dict]:
+    """
+    Query activity stats for all users invited by inviter_id.
+    Returns a list of dicts, one per invitee, sorted by swipe_count desc.
+    Each dict contains:
+      - invitee_id
+      - swipe_count   (total posts swiped, like+dislike)
+      - points
+      - is_premium
+      - joined_at     (when they joined the bot)
+      - last_active   (timestamp of their last swipe, or None)
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT
+                r.invitee_id,
+                u.points,
+                u.is_premium,
+                u.created_at            AS joined_at,
+                COUNT(s.post_id)        AS swipe_count,
+                MAX(s.created_at)       AS last_active
+            FROM referrals r
+            JOIN users u ON u.id = r.invitee_id
+            LEFT JOIN post_swipes s ON s.user_id = r.invitee_id
+            WHERE r.inviter_id = $1
+            GROUP BY r.invitee_id, u.points, u.is_premium, u.created_at
+            ORDER BY swipe_count DESC, u.created_at DESC
+            """,
+            inviter_id,
+        )
+    return [dict(row) for row in rows]

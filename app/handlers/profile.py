@@ -47,6 +47,7 @@ async def show_profile(chat_id: int, user_id: int, user, lang: str):
     sub_buttons = inline_keyboard([
         [inline_button(t("btn_my_stories", lang), "profile:stories")],
         [inline_button(t("btn_my_favorites", lang), "profile:favorites")],
+        [inline_button(t("btn_my_team", lang), "profile:team")],
         [inline_button(t("btn_add_to_group", lang), url=add_to_group_link)],
     ])
     await send_message(chat_id, "👇", reply_markup=sub_buttons)

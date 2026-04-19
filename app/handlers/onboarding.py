@@ -10,7 +10,7 @@ import logging
 from app.config import get_settings
 from app.services.user_service import get_or_create_user, update_user, get_user, add_points
 from app.services.country_service import detect_country, get_country_display as fmt_country
-from app.i18n import t, guess_country
+from app.i18n import t, guess_country, country_to_lang
 from app.models import PointsConfig
 from app.telegram_helpers import send_message, inline_keyboard, inline_button
 from app.handlers.shared import main_menu_keyboard, country_quick_picks, show_settings
@@ -99,12 +99,18 @@ async def finish_country_input(chat_id: int, user_id: int, country_text: str, la
     """Handle free-text country input — detect, normalize, confirm."""
     info = await detect_country(country_text)
 
-    await update_user(user_id, country=info.name_zh, onboard_state="ready")
+    # Auto-set language based on country during onboarding
+    inferred_lang = country_to_lang(info.name_zh)
+    if inferred_lang and inferred_lang != lang:
+        lang = inferred_lang
+        await update_user(user_id, country=info.name_zh, lang=lang, onboard_state="ready")
+    else:
+        await update_user(user_id, country=info.name_zh, onboard_state="ready")
 
     display = f"{info.flag} {info.name_zh if lang == 'zh' else info.name_en}"
     await send_message(chat_id, t("country_set", lang, country=display))
 
-    # Product intro + auto-send first card for new users
+    # Product intro + auto-send first card for new users (in the now-correct language)
     await send_onboard_intro_and_first_card(chat_id, user_id, lang)
 
 

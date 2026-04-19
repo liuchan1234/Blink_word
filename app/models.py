@@ -95,6 +95,7 @@ class UserProfile(BaseModel):
     channel_prefs: list[int] = Field(default_factory=lambda: list(ALL_CHANNEL_IDS))
     points: int = 0
     show_country: bool = True
+    is_premium: bool = False                        # paid membership flag
     created_at: datetime | None = None
     last_checkin: datetime | None = None
     stats: dict = Field(default_factory=lambda: {
