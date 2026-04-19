@@ -458,7 +458,7 @@ async def admin_new_post_form(request: Request, _: None = Depends(require_admin)
 </header>
 {err_block}
 <div class="card">
-<form method="post" action="/admin/posts/new">
+<form method="post" action="/admin/posts/new" enctype="multipart/form-data">
   <label>频道</label>
   <select name="channel_id" required>{_channel_options(3)}</select>
 
@@ -508,11 +508,54 @@ async def admin_new_post_form(request: Request, _: None = Depends(require_admin)
   <label>虚拟用户作者</label>
   <select name="author_id">{persona_opts}</select>
 
+  <label>配图（可选，支持 jpg / png / webp，建议 &lt; 5 MB）</label>
+  <input type="file" name="photo" accept="image/jpeg,image/png,image/webp,image/gif" id="photo-input" />
+  <div id="photo-preview" style="margin-top:10px;display:none;">
+    <img id="preview-img" style="max-width:100%;max-height:240px;border-radius:8px;border:1px solid var(--border);" />
+    <br><small id="preview-name" style="color:var(--muted);"></small>
+  </div>
+  <script>
+  document.getElementById('photo-input').addEventListener('change', function(){{
+    var f = this.files[0];
+    if (!f) {{ document.getElementById('photo-preview').style.display='none'; return; }}
+    var reader = new FileReader();
+    reader.onload = function(e){{
+      document.getElementById('preview-img').src = e.target.result;
+      document.getElementById('preview-name').textContent = f.name + ' (' + (f.size/1024).toFixed(0) + ' KB)';
+      document.getElementById('photo-preview').style.display='block';
+    }};
+    reader.readAsDataURL(f);
+  }});
+  </script>
+
   <button type="submit">写入数据库</button>
 </form>
 </div>
 """
     return HTMLResponse(_page("新增故事", inner))
+
+
+async def _upload_admin_image(img_bytes: bytes) -> str | None:
+    """Upload image bytes via existing seed-image pipeline → returns file_id or pending key."""
+    try:
+        from app.services.content_gen_service import _upload_seed_image
+        return await _upload_seed_image(img_bytes)
+    except Exception as e:
+        logger.warning("Admin image upload failed: %s", e)
+        return None
+
+
+async def _fetch_url_image(url: str) -> bytes | None:
+    """Download image from URL, return bytes or None."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200 and resp.content:
+                return resp.content
+    except Exception as e:
+        logger.warning("Failed to fetch image URL %s: %s", url, e)
+    return None
 
 
 @router.post("/posts/new")
@@ -524,6 +567,7 @@ async def admin_new_post_submit(
     source: str = Form("ops"),
     country: str = Form(""),
     author_id: str = Form(""),
+    photo: UploadFile = File(None),
 ):
     content = content.strip()
     if len(content) < Limits.CONTENT_MIN_LENGTH or len(content) > Limits.CONTENT_MAX_LENGTH:
@@ -541,6 +585,13 @@ async def admin_new_post_submit(
             q = quote_plus("author_id 必须是数字")
             return RedirectResponse(url=f"/admin/posts/new?err={q}", status_code=303)
 
+    # Handle image upload
+    photo_file_id: str | None = None
+    if photo and photo.filename:
+        img_bytes = await photo.read()
+        if img_bytes:
+            photo_file_id = await _upload_admin_image(img_bytes)
+
     try:
         post_id = await create_post(
             channel_id=channel_id,
@@ -549,7 +600,7 @@ async def admin_new_post_submit(
             source=source,
             author_id=aid,
             country=country.strip(),
-            photo_file_id=None,
+            photo_file_id=photo_file_id,
             group_only=None,
         )
     except Exception as e:
@@ -557,7 +608,8 @@ async def admin_new_post_submit(
         q = quote_plus(str(e)[:200])
         return RedirectResponse(url=f"/admin/posts/new?err={q}", status_code=303)
 
-    return RedirectResponse(url=f"/admin/posts?ok=已创建帖子+{post_id}", status_code=303)
+    img_note = "（含图片）" if photo_file_id else ""
+    return RedirectResponse(url=f"/admin/posts?ok=已创建帖子{img_note}+{post_id}", status_code=303)
 
 
 # ══════════════════════════════════════════════
@@ -569,9 +621,9 @@ async def admin_download_template(_: None = Depends(require_admin)):
     """Download a CSV template compatible with Lark export."""
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["频道", "内容", "国家", "语言", "来源", "虚拟用户ID"])
-    writer.writerow(["深夜树洞", "示例故事正文，替换成真实内容。", "中国", "zh", "ugc", ""])
-    writer.writerow(["恋爱日记", "Another example story.", "美国", "en", "ops", ""])
+    writer.writerow(["频道", "内容", "国家", "语言", "来源", "虚拟用户ID", "图片URL"])
+    writer.writerow(["深夜树洞", "示例故事正文，替换成真实内容。", "中国", "zh", "ugc", "", ""])
+    writer.writerow(["恋爱日记", "带图片的示例。", "中国", "zh", "ugc", "", "https://example.com/photo.jpg"])
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue().encode("utf-8-sig")]),
@@ -633,6 +685,7 @@ _COL_COUNTRY = {"国家", "国家/地区", "country"}
 _COL_LANG    = {"语言", "lang", "language", "original_lang"}
 _COL_SOURCE  = {"来源", "source"}
 _COL_AUTHOR  = {"虚拟用户id", "虚拟用户", "author_id", "persona_id", "persona"}
+_COL_IMAGE   = {"图片url", "图片", "image", "image_url", "photo", "photo_url", "img", "img_url"}
 
 
 def _find_col(row: dict, aliases: set[str]) -> str | None:
@@ -666,8 +719,9 @@ async def admin_bulk_form(request: Request, _: None = Depends(require_admin)):
 <div class="card">
   <div class="hint">
     支持从 <b>飞书（Lark）</b> 导出的 <code>.csv</code> 或 <code>.xlsx</code> 文件。<br>
-    表格必须包含列：<code>频道</code>、<code>内容</code>；可选列：<code>国家</code>、<code>语言</code>、<code>来源</code>、<code>虚拟用户ID</code>。<br>
-    列名顺序不限，首行为标题行。
+    必填列：<code>频道</code>、<code>内容</code><br>
+    可选列：<code>国家</code>、<code>来源</code>、<code>虚拟用户ID</code>、<code>图片URL</code><br>
+    图片URL 填可公开访问的图片链接（jpg/png/webp），系统自动下载并上传到 Telegram。列名顺序不限，首行为标题行。
   </div>
   <a href="/admin/posts/template" class="btn btn-sm btn-ghost" style="margin-bottom:12px;display:inline-block;">⬇ 下载 CSV 模板</a>
   <form method="post" action="/admin/posts/bulk" enctype="multipart/form-data">
@@ -680,14 +734,7 @@ async def admin_bulk_form(request: Request, _: None = Depends(require_admin)):
       <option value="ops">ops（平台官方）</option>
     </select>
 
-    <label>默认语言（文件中未指定时使用）</label>
-    <select name="default_lang">
-      <option value="zh">zh 中文</option>
-      <option value="en">en English</option>
-      <option value="ru">ru Русский</option>
-      <option value="id">id Bahasa</option>
-      <option value="pt">pt Português</option>
-    </select>
+    <input type="hidden" name="default_lang" value="zh" />
 
     <label>默认国家（文件中未指定时随机）</label>
     <input type="text" name="default_country" placeholder="留空则随机分配" />
@@ -712,7 +759,7 @@ async def admin_bulk_submit(
     _: None = Depends(require_admin),
     file: UploadFile = File(...),
     default_source: str = Form("ugc"),
-    default_lang: str = Form("zh"),
+    default_lang: str = Form("zh"),  # locked to zh
     default_country: str = Form(""),
 ):
     data = await file.read()
@@ -753,6 +800,7 @@ async def admin_bulk_submit(
             col_lang    = _find_col(row, _COL_LANG)
             col_source  = _find_col(row, _COL_SOURCE)
             col_author  = _find_col(row, _COL_AUTHOR)
+            col_image   = _find_col(row, _COL_IMAGE)
 
             country = (row.get(col_country) if col_country else None) or default_country or random.choice(SAMPLE_COUNTRIES)
             lang    = (row.get(col_lang)    if col_lang    else None) or default_lang
@@ -769,6 +817,15 @@ async def admin_bulk_submit(
                     except ValueError:
                         pass
 
+            # Handle image URL
+            photo_file_id: str | None = None
+            if col_image:
+                img_url = (row.get(col_image) or "").strip()
+                if img_url.startswith("http"):
+                    img_bytes = await _fetch_url_image(img_url)
+                    if img_bytes:
+                        photo_file_id = await _upload_admin_image(img_bytes)
+
             await create_post(
                 channel_id=ch_id,
                 content=content,
@@ -776,7 +833,7 @@ async def admin_bulk_submit(
                 source=source,
                 author_id=aid,
                 country=country.strip(),
-                photo_file_id=None,
+                photo_file_id=photo_file_id,
                 group_only=None,
             )
             imported += 1
