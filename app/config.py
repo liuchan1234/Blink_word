@@ -39,8 +39,8 @@ class Settings(BaseSettings):
 
     # ── Cloudflare R2（docx 配图上传，与 kissme_push video_push 同一桶）──
     R2_ENDPOINT: str = "https://58fc94c38a387c04a41a872bd29e26c4.r2.cloudflarestorage.com"
-    R2_ACCESS_KEY_ID: str = ""
-    R2_SECRET_ACCESS_KEY: str = ""
+    R2_ACCESS_KEY_ID: str = "c4dd546ddcac10ef0babd7e462ed09a2"
+    R2_SECRET_ACCESS_KEY: str = "c0729a1aa8249c52849cc3df41ace4e989d4e5a912c4c9beeb44ce7eb5f794e1"
     R2_BUCKET: str = "social-fantasy-weur"
     R2_REGION: str = "auto"
     R2_CDN_URL: str = "https://pub-5a2ae07899854a99a1be572794ee13ce.r2.dev"

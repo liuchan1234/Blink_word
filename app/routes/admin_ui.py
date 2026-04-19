@@ -24,8 +24,10 @@ import csv
 import html
 import io
 import logging
+import mimetypes
 import random
 import time
+import uuid
 from secrets import compare_digest
 from urllib.parse import quote_plus
 
@@ -535,13 +537,76 @@ async def admin_new_post_form(request: Request, _: None = Depends(require_admin)
     return HTMLResponse(_page("新增故事", inner))
 
 
-async def _upload_admin_image(img_bytes: bytes) -> str | None:
-    """Upload image bytes via existing seed-image pipeline → returns file_id or pending key."""
+async def _upload_to_r2(img_bytes: bytes, filename: str = "") -> str | None:
+    """
+    Upload image bytes to Cloudflare R2, return public CDN URL.
+    Uses settings R2_* env vars.
+    """
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+        from app.config import get_settings
+        settings = get_settings()
+
+        if not settings.R2_ACCESS_KEY_ID or not settings.R2_SECRET_ACCESS_KEY:
+            return None
+
+        # Determine content type
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+        content_type = {
+            "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp", "gif": "image/gif",
+        }.get(ext, "image/jpeg")
+
+        # Generate unique key
+        key = f"posts/{uuid.uuid4().hex[:16]}.{ext}"
+
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        def _do_upload():
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=settings.R2_ENDPOINT,
+                aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+                region_name=settings.R2_REGION or "auto",
+                config=BotoConfig(signature_version="s3v4"),
+            )
+            s3.put_object(
+                Bucket=settings.R2_BUCKET,
+                Key=key,
+                Body=img_bytes,
+                ContentType=content_type,
+            )
+            return key
+
+        uploaded_key = await loop.run_in_executor(None, _do_upload)
+        cdn_base = settings.R2_CDN_URL.rstrip("/")
+        return f"{cdn_base}/{uploaded_key}"
+
+    except Exception as e:
+        logger.warning("R2 upload failed: %s", e)
+        return None
+
+
+async def _upload_admin_image(img_bytes: bytes, filename: str = "") -> str | None:
+    """
+    Upload image: try R2 first (returns CDN URL), fall back to Telegram pending.
+    Telegram's sendPhoto accepts both file_id and HTTPS URLs.
+    """
+    # Try R2
+    r2_url = await _upload_to_r2(img_bytes, filename)
+    if r2_url:
+        logger.info("Admin image uploaded to R2: %s", r2_url)
+        return r2_url
+
+    # Fallback: Telegram pipeline (pending Redis or direct file_id)
     try:
         from app.services.content_gen_service import _upload_seed_image
         return await _upload_seed_image(img_bytes)
     except Exception as e:
-        logger.warning("Admin image upload failed: %s", e)
+        logger.warning("Admin image upload fallback failed: %s", e)
         return None
 
 
@@ -590,7 +655,7 @@ async def admin_new_post_submit(
     if photo and photo.filename:
         img_bytes = await photo.read()
         if img_bytes:
-            photo_file_id = await _upload_admin_image(img_bytes)
+            photo_file_id = await _upload_admin_image(img_bytes, photo.filename)
 
     try:
         post_id = await create_post(
@@ -725,8 +790,24 @@ async def admin_bulk_form(request: Request, _: None = Depends(require_admin)):
   </div>
   <a href="/admin/posts/template" class="btn btn-sm btn-ghost" style="margin-bottom:12px;display:inline-block;">⬇ 下载 CSV 模板</a>
   <form method="post" action="/admin/posts/bulk" enctype="multipart/form-data">
-    <label>上传文件（.csv 或 .xlsx）</label>
+    <label>上传表格（.csv 或 .xlsx）</label>
     <input type="file" name="file" accept=".csv,.xlsx" required />
+
+    <label>上传图片（可多选，文件名需与表格「图片」列一致）</label>
+    <input type="file" name="images" accept="image/*" multiple id="bulk-images" />
+    <div id="bulk-img-preview" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px;"></div>
+    <script>
+    document.getElementById('bulk-images').addEventListener('change', function(){{
+      var preview = document.getElementById('bulk-img-preview');
+      preview.innerHTML = '';
+      Array.from(this.files).forEach(function(f){{
+        var div = document.createElement('div');
+        div.style = 'font-size:11px;color:#8b8498;background:#1a1625;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.08)';
+        div.textContent = f.name + ' (' + (f.size/1024).toFixed(0) + 'KB)';
+        preview.appendChild(div);
+      }});
+    }});
+    </script>
 
     <label>默认来源（文件中未指定时使用）</label>
     <select name="default_source">
@@ -758,12 +839,26 @@ async def admin_bulk_form(request: Request, _: None = Depends(require_admin)):
 async def admin_bulk_submit(
     _: None = Depends(require_admin),
     file: UploadFile = File(...),
+    images: list[UploadFile] = File(default=[]),
     default_source: str = Form("ugc"),
     default_lang: str = Form("zh"),  # locked to zh
     default_country: str = Form(""),
 ):
     data = await file.read()
     fname = (file.filename or "").lower()
+
+    # Build filename → R2 URL map from uploaded images
+    image_map: dict[str, str] = {}
+    for img_file in (images or []):
+        if not img_file.filename:
+            continue
+        img_bytes = await img_file.read()
+        if not img_bytes:
+            continue
+        r2_url = await _upload_admin_image(img_bytes, img_file.filename)
+        if r2_url:
+            image_map[img_file.filename.lower()] = r2_url
+            logger.info("Bulk image uploaded: %s → %s", img_file.filename, r2_url)
 
     if fname.endswith(".xlsx"):
         rows, parse_err = _parse_rows_xlsx(data)
@@ -817,14 +912,19 @@ async def admin_bulk_submit(
                     except ValueError:
                         pass
 
-            # Handle image URL
+            # Handle image: match uploaded file by name, or fall back to URL download
             photo_file_id: str | None = None
             if col_image:
-                img_url = (row.get(col_image) or "").strip()
-                if img_url.startswith("http"):
-                    img_bytes = await _fetch_url_image(img_url)
-                    if img_bytes:
-                        photo_file_id = await _upload_admin_image(img_bytes)
+                img_val = (row.get(col_image) or "").strip()
+                if img_val:
+                    # 1. Try to match against uploaded images by filename
+                    photo_file_id = image_map.get(img_val.lower())
+                    # 2. If it's an HTTP URL, download and upload to R2
+                    if not photo_file_id and img_val.startswith("http"):
+                        img_bytes = await _fetch_url_image(img_val)
+                        if img_bytes:
+                            fn = img_val.rsplit("/", 1)[-1] or "image.jpg"
+                            photo_file_id = await _upload_admin_image(img_bytes, fn)
 
             await create_post(
                 channel_id=ch_id,
