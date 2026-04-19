@@ -723,13 +723,16 @@ def _parse_rows_csv(data: bytes) -> tuple[list[dict], str]:
 
 
 def _parse_rows_xlsx(data: bytes) -> tuple[list[dict], str]:
-    """Parse XLSX bytes → list of row dicts."""
+    """Parse XLSX bytes → list of row dicts.
+    Embedded images (e.g. from Lark) are injected as '__image_bytes__' (bytes) in each row.
+    """
     try:
         import openpyxl
     except ImportError:
         return [], "服务器未安装 openpyxl，请上传 CSV 格式"
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        # Must NOT use read_only=True — images are unavailable in read-only mode
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
         ws = wb.active
         rows_iter = iter(ws.iter_rows(values_only=True))
         header = [str(c or "").strip() for c in next(rows_iter, [])]
@@ -738,6 +741,53 @@ def _parse_rows_xlsx(data: bytes) -> tuple[list[dict], str]:
         result = []
         for row in rows_iter:
             result.append({header[i]: str(v or "").strip() for i, v in enumerate(row) if i < len(header)})
+
+        # ── Extract embedded images and attach to matching rows ──────────────
+        # openpyxl anchors use 0-based row indices; header occupies row 0,
+        # so data row N (1-based) lives at anchor row N, i.e. result[N-1].
+        for img in getattr(ws, "_images", []):
+            try:
+                anchor = img.anchor
+                if hasattr(anchor, "_from"):
+                    row_0 = anchor._from.row   # 0-indexed (header = 0)
+                elif hasattr(anchor, "row"):
+                    row_0 = anchor.row
+                else:
+                    continue
+
+                data_idx = row_0 - 1  # header offset → result list index
+                if data_idx < 0 or data_idx >= len(result):
+                    continue
+
+                # Retrieve raw bytes from the Image object
+                img_bytes: bytes | None = None
+                ref = img.ref
+                if callable(getattr(img, "_data", None)):
+                    img_bytes = img._data()
+                elif hasattr(ref, "read"):
+                    ref.seek(0)
+                    img_bytes = ref.read()
+                elif isinstance(ref, (bytes, bytearray)):
+                    img_bytes = bytes(ref)
+                else:
+                    try:  # PIL.Image fallback
+                        buf = io.BytesIO()
+                        ref.save(buf, format="PNG")
+                        img_bytes = buf.getvalue()
+                    except Exception:
+                        pass
+
+                if img_bytes:
+                    result[data_idx]["__image_bytes__"] = img_bytes
+                    logger.debug("XLSX: attached embedded image to data row %d (%d bytes)", data_idx + 1, len(img_bytes))
+
+            except Exception as exc:
+                logger.warning("XLSX image extraction skipped: %s", exc)
+
+        img_count = sum(1 for r in result if "__image_bytes__" in r)
+        if img_count:
+            logger.info("XLSX: extracted %d embedded image(s) from %d rows", img_count, len(result))
+
         return result, ""
     except Exception as e:
         return [], f"XLSX 解析失败：{e}"
@@ -869,6 +919,13 @@ async def admin_bulk_submit(
         q = quote_plus(parse_err)
         return RedirectResponse(url=f"/admin/posts/bulk?err={q}", status_code=303)
 
+    logger.info("Bulk upload: file=%s size=%d rows=%d", fname, len(data), len(rows))
+    if rows:
+        logger.info("Bulk upload: columns=%s", list(rows[0].keys()))
+    else:
+        q = quote_plus("文件解析成功但没有数据行，请确认表格有内容且第一行是标题")
+        return RedirectResponse(url=f"/admin/posts/bulk?err={q}", status_code=303)
+
     imported, errors = 0, []
 
     for i, row in enumerate(rows, 1):
@@ -876,7 +933,9 @@ async def admin_bulk_submit(
             col_ch = _find_col(row, _COL_CHANNEL)
             col_ct = _find_col(row, _COL_CONTENT)
             if not col_ch or not col_ct:
-                errors.append(f"行 {i}：找不到「频道」或「内容」列")
+                if i == 1:
+                    logger.warning("Bulk: col not found. Available cols: %s", list(row.keys()))
+                errors.append(f"行 {i}：找不到「频道」或「内容」列（实际列名：{list(row.keys())}）")
                 continue
 
             ch_id = _parse_channel(row.get(col_ch, ""))
@@ -912,9 +971,17 @@ async def admin_bulk_submit(
                     except ValueError:
                         pass
 
-            # Handle image: match uploaded file by name, or fall back to URL download
+            # Handle image: embedded bytes (XLSX) > uploaded file match > URL download
             photo_file_id: str | None = None
-            if col_image:
+
+            # 0. Embedded image extracted from XLSX cell
+            embedded_bytes: bytes | None = row.pop("__image_bytes__", None)  # type: ignore[arg-type]
+            if embedded_bytes:
+                photo_file_id = await _upload_admin_image(embedded_bytes, f"xlsx_img_row{i}.jpg")
+                if photo_file_id:
+                    logger.info("Row %d: used embedded XLSX image → %s", i, photo_file_id)
+
+            if not photo_file_id and col_image:
                 img_val = (row.get(col_image) or "").strip()
                 if img_val:
                     # 1. Try to match against uploaded images by filename
