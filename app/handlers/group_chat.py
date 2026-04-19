@@ -76,21 +76,22 @@ async def handle_group_message(message: dict):
     browse_report = t("browse_report_btn", lang)
     browse_topics = t("browse_topics_btn", lang)
 
-    if text in {"👍", browse_like}:
+    # Only respond to reply keyboard button text — ignore raw emoji typed by users
+    if text == browse_like:
         await _handle_group_text_action(chat_id, user_id, "like")
         return
-    if text in {"👎", browse_next}:
+    if text == browse_next:
         await _handle_group_text_action(chat_id, user_id, "dislike")
         return
-    if text in {"⭐", browse_fav} or text.startswith("⭐"):
+    if text == browse_fav:
         await _handle_group_text_action(chat_id, user_id, "favorite")
         return
-    if text in {"⚠️", browse_report} or text.startswith("⚠️"):
+    if text == browse_report:
         await _handle_group_text_action(chat_id, user_id, "report")
         return
 
     # 🎯 Topics — show group channel selector
-    if text == browse_topics or text.startswith("🎯"):
+    if text == browse_topics:
         await _show_group_topics(chat_id, lang)
         return
 
