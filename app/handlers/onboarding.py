@@ -160,11 +160,12 @@ async def send_onboard_intro_and_first_card(chat_id: int, user_id: int, lang: st
     from app.handlers.browsing import send_next_card
     from app.services.user_service import get_user
 
-    # Send the intro message with main menu keyboard
+    # Send the intro message with browse keyboard so user can swipe immediately
+    from app.handlers.shared import browse_keyboard
     await send_message(
         chat_id,
         t("onboard_intro", lang),
-        reply_markup=main_menu_keyboard(lang),
+        reply_markup=browse_keyboard(lang),
     )
 
     # Auto-send the first card so the user immediately experiences the product
