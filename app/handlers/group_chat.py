@@ -12,7 +12,7 @@ import asyncio
 import logging
 
 from app.config import get_settings
-from app.telegram_helpers import send_message, send_photo, answer_callback_query, inline_keyboard, inline_button
+from app.telegram_helpers import send_message, send_photo, answer_callback_query, inline_keyboard, inline_button, remove_keyboard
 from app.services.user_service import get_or_create_user, add_points
 from app.services.group_service import (
     register_group,
@@ -134,6 +134,11 @@ async def handle_group_message(message: dict):
        or text == "/start" or text.startswith("/start@"):
         await send_message(chat_id, "📖", reply_markup=group_browse_keyboard(lang))
         await send_group_card(chat_id, lang)
+        return
+
+    # /stop command — hide the reply keyboard
+    if text == "/stop" or text.startswith("/stop@"):
+        await send_message(chat_id, t("group_stopped", lang), reply_markup=remove_keyboard())
         return
 
 
