@@ -141,6 +141,29 @@ app = FastAPI(
     redoc_url=None,
 )
 
+# ── Upload size limit middleware (default FastAPI/uvicorn has no hard cap;
+#    we enforce 100 MB so large XLSX + image batches are accepted) ──
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+
+_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+
+class UploadSizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if request.method == "POST":
+            cl = request.headers.get("content-length")
+            if cl and int(cl) > _MAX_UPLOAD_BYTES:
+                return StarletteResponse(
+                    content=f"上传文件过大，最大允许 {_MAX_UPLOAD_BYTES // 1024 // 1024} MB",
+                    status_code=413,
+                )
+        return await call_next(request)
+
+
+app.add_middleware(UploadSizeLimitMiddleware)
+
 # ── Register Routes ──
 from app.routes.webhook import router as webhook_router
 from app.routes.health import router as health_router
