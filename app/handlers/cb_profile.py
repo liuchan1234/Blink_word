@@ -144,7 +144,7 @@ async def _show_invitees_activity(chat_id: int, user_id: int, lang: str):
             last_str = t("team_never_active", lang)
 
         lines.append(
-            f"\n{premium_badge}<b>#{i}</b>  "
+            f"\n{premium_badge}<b>#{i}</b>  <code>{r['invitee_id']}</code>\n"
             f"🔄 {swipes} · 🏆 {points} · 🕐 {last_str}"
         )
 
