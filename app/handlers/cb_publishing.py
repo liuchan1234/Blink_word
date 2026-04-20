@@ -113,7 +113,12 @@ async def handle_publish_action(cb_id: str, chat_id: int, user_id: int, user, da
         post_id = await publish_draft(user_id, draft)
         await answer_callback_query(cb_id)
 
-        if post_id:
+        if post_id == "daily_limit":
+            await send_message(chat_id, t("daily_post_limit", lang))
+            await update_user(user_id, onboard_state="ready")
+            await send_message(chat_id, "👆", reply_markup=main_menu_keyboard(lang))
+            return
+        elif post_id:
             await send_message(chat_id, t("published_success", lang))
         else:
             await send_message(chat_id, t("error_generic", lang))

@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 DRAFT_KEY = "draft:{user_id}"
 DRAFT_TTL = 1800  # 30 minutes
 
+# Daily post limit
+DAILY_POST_KEY = "daily_pub:{user_id}:{date}"
+DAILY_POST_LIMIT = 10
+
 
 async def save_draft(user_id: int, draft: dict):
     """Save a publishing draft to Redis."""
@@ -52,11 +56,46 @@ async def clear_draft(user_id: int):
         pass
 
 
+async def get_daily_post_count(user_id: int) -> int:
+    """Return how many posts this user has published today."""
+    try:
+        from datetime import date
+        r = get_redis()
+        key = DAILY_POST_KEY.format(user_id=user_id, date=date.today().isoformat())
+        val = await r.get(key)
+        return int(val) if val else 0
+    except Exception:
+        return 0
+
+
+async def _increment_daily_post_count(user_id: int):
+    """Increment today's post counter; expires at end of day (UTC)."""
+    try:
+        from datetime import date, datetime, timezone
+        r = get_redis()
+        key = DAILY_POST_KEY.format(user_id=user_id, date=date.today().isoformat())
+        await r.incr(key)
+        # Set TTL to seconds remaining until midnight UTC
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+        midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        ttl = int((midnight - now).total_seconds()) + 60  # +60s buffer
+        await r.expire(key, ttl)
+    except Exception as e:
+        logger.warning("Failed to increment daily post count for user %d: %s", user_id, e)
+
+
 async def publish_draft(user_id: int, draft: dict) -> str | None:
     """
     Publish a draft to the posts table.
-    Returns post_id on success, None on failure.
+    Returns post_id on success, 'daily_limit' if limit reached, None on failure.
     """
+    # ── Daily limit check ──
+    count = await get_daily_post_count(user_id)
+    if count >= DAILY_POST_LIMIT:
+        logger.info("User %d hit daily post limit (%d/%d)", user_id, count, DAILY_POST_LIMIT)
+        return "daily_limit"
+
     try:
         post_id = await create_post(
             channel_id=draft["channel_id"],
@@ -68,6 +107,9 @@ async def publish_draft(user_id: int, draft: dict) -> str | None:
             photo_file_id=draft.get("photo_file_id"),
             group_only=draft.get("group_only"),
         )
+
+        # Increment daily counter
+        await _increment_daily_post_count(user_id)
 
         # Award points
         await add_points(user_id, PointsConfig.PUBLISH_STORY, reason="publish")
