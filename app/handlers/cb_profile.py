@@ -127,26 +127,9 @@ async def _show_invitees_activity(chat_id: int, user_id: int, lang: str):
         await send_message(chat_id, t("team_empty", lang))
         return
 
-    lines = [t("team_header", lang, count=len(rows))]
+    ACTIVE_THRESHOLD = 20  # swipes needed to count as active
 
-    for i, r in enumerate(rows, 1):
-        premium_badge = "👑 " if r["is_premium"] else ""
-        swipes = r["swipe_count"]
-        points = r["points"]
+    total = len(rows)
+    active_count = sum(1 for r in rows if r["swipe_count"] >= ACTIVE_THRESHOLD)
 
-        # Format last active
-        last_active = r["last_active"]
-        if last_active:
-            if last_active.tzinfo is None:
-                last_active = last_active.replace(tzinfo=timezone.utc)
-            last_str = last_active.strftime("%m-%d")
-        else:
-            last_str = t("team_never_active", lang)
-
-        lines.append(
-            f"\n{premium_badge}<b>#{i}</b>  <code>{r['invitee_id']}</code>\n"
-            f"🔄 {swipes} · 🏆 {points} · 🕐 {last_str}"
-        )
-
-    lines.append(f"\n{t('team_footer', lang)}")
-    await send_message(chat_id, "\n".join(lines))
+    await send_message(chat_id, t("team_header", lang, count=total, active=active_count))
