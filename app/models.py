@@ -170,8 +170,8 @@ class PointsConfig:
 class Limits:
     """All business rule thresholds in one place."""
     # Content
-    CONTENT_MIN_LENGTH = 6               # Global minimum (used by admin UI)
-    CONTENT_MIN_LENGTH_ZH = 6            # Chinese: 6 characters
+    CONTENT_MIN_LENGTH = 10              # Global minimum (used by admin UI)
+    CONTENT_MIN_LENGTH_ZH = 10           # Chinese: 10 characters
     CONTENT_MIN_LENGTH_DEFAULT = 10      # Other languages: 10 characters
     CONTENT_MAX_LENGTH = 500
     REACTIONS_PER_POST = 3           # Max emoji reactions per user per post
