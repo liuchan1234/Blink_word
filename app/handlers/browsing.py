@@ -82,8 +82,8 @@ async def send_next_card(chat_id: int, user_id: int, user, lang: str):
     if swipe_count > 0 and swipe_count % 10 == 0:
         await add_points(user_id, PointsConfig.SWIPE_PER_10, reason="swipe_10")
 
-    # One-time group invite: after 3rd card, only once ever
-    if swipe_count == 3:
+    # Group invite: every 15 swipes
+    if swipe_count > 0 and swipe_count % 15 == 0:
         settings = get_settings()
         add_link = f"https://t.me/{settings.BOT_USERNAME}?startgroup=true"
         await send_message(
